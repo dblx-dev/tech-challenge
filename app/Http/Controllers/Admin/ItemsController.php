@@ -13,18 +13,64 @@ use Inertia\Response;
 
 class ItemsController extends Controller
 {
+    /*
+    * Render the item vue with table and search functionality.
+    */
     public function index(): Response
     {
+        $search = request('search');
+
+        // Add search functionality to items/Index.vue.
+        $items = Item::query()
+            ->when($search, function ($query, $search) {
+                return $query->where('name', 'LIKE', "%{$search}%");
+            })
+            // Join with the downloads table for items with content_type 'download'
+            ->leftJoin('downloads', function ($join) {
+                $join->on('items.content_id', '=', 'downloads.id')
+                    ->where('items.content_type', '=', 'download');
+            })
+            // Join with the weblinks table for items with content_type 'weblink'
+            ->leftJoin('weblinks', function ($join) {
+                $join->on('items.content_id', '=', 'weblinks.id')
+                    ->where('items.content_type', '=', 'WEBLINK');
+            })
+            // Join with the infos table for items with content_type 'info'
+            ->leftJoin('infos', function ($join) {
+                $join->on('items.content_id', '=', 'infos.id')
+                    ->where('items.content_type', '=', 'info');
+            })
+            ->select(
+                'items.*',
+                'downloads.url as download_url',
+                'weblinks.url as weblink_url',
+                \DB::raw("CONCAT(infos.header, '<br><br>', infos.content) as info_content") // Concatenate header and content from infos table.
+            )
+            ->oldest()
+            ->limit(10)
+            ->get();
+
+
+        
+
+        // Pass the items and search variables to the vue file.
         return Inertia::render('items/Index', [
-            'items' => Item::query()->oldest()->limit(10)->get(),
+            'items' => $items,
+            'search' => $search,
         ]);
     }
 
+    /*
+    * Render the create item vue.
+    */
     public function create(): Response
     {
         return Inertia::render('items/Create', []);
     }
 
+    /*
+    * Create a new item.
+    */
     public function store()
     {
         $type = match(request()->input('content_type')) {
@@ -46,6 +92,9 @@ class ItemsController extends Controller
         return redirect()->route('admin.items.index')->with('message', 'Successfully Created Item');
     }
 
+    /*
+    * Render the edit item vue.
+    */
     public function edit(Item $item): Response
     {
         return Inertia::render('items/Edit', [
@@ -53,6 +102,9 @@ class ItemsController extends Controller
         ]);
     }
 
+    /*
+    * Edit an existing item.
+    */
     public function update(Item $item): RedirectResponse
     {
         $item->forceFill(request()->only(['name', 'description']));
@@ -72,4 +124,20 @@ class ItemsController extends Controller
 
         return redirect()->route('admin.items.index')->with('message', 'Successfully Updated Item');
     }
+
+    /*
+    * Delete an existing item.
+    */
+    public function delete(Item $item): RedirectResponse
+    {
+        // Soft delete by setting active to 0.
+        $item->active = 0;
+        $item->save();
+
+        // To delete item permenantly, use:
+        // $item->delete();
+
+        return redirect()->route('admin.items.index')->with('message', 'Item deleted successfully.');
+    }
+
 }
